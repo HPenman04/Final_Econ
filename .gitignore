@@ -1,0 +1,12 @@
+.DS_Store
+.Rhistory
+.RData
+.Rproj.user/
+*.dta
+*.sav
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.RData
+*.rds
