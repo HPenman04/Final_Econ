@@ -31,67 +31,121 @@ if (!exists("datasets")) {
 
 # 1. Prepare education subset
 system2("open", shQuote(here::here("Datasets/Sweep 6 Age 29/mrdoc/ukda_data_dictionaries/bcs6derived_ukda_data_dictionary.rtf")), wait = FALSE)
-education_subset_29 <- sweep6age29_se_bcs6derived[, c("BCSID", "HIACA00")]
-names(education_subset_29)[names(education_subset_29) == "HIACA00"] <- "Edu_level29"
-attr(education_subset_29$Edu_level29, "label") <- "HIACA00"
-education_subset_29$Edu_level29[education_subset_29$Edu_level29 == -9] <- NA
-
-
-salary_subset_29 <- sweep6age29_se_bcs2000 %>%
-  select(bcsid, cgropay, cgroprd, chours1) %>%
-  
-  # Recode “Don’t know”/“Not answered” to NA
-  mutate(
-    cgropay = if_else(cgropay %in% c(9999998, 9999999), NA_real_, cgropay),
-    cgroprd  = if_else(cgroprd  %in% c(6, 8, 9),       NA_real_, cgroprd)
+education_subset_29 <- sweep6age29_se_bcs6derived %>%
+  select(
+    BCSID,
+    Edu_level29 = HIACA00
   ) %>%
-  
-  # Compute annual pay from pay amount + period
   mutate(
-    gross_pay_annual = case_when(
-      cgroprd == 1 ~ cgropay * 52,    # weekly → 52 weeks
-      cgroprd == 2 ~ cgropay * 26,    # fortnight → 26
-      cgroprd == 3 ~ cgropay * 13,    # four weeks → 13
-      cgroprd == 4 ~ cgropay * 12,    # calendar month → 12
-      cgroprd == 5 ~ cgropay,         # already annual
-      TRUE         ~ NA_real_         # “Other” or missing
-    )
+    Edu_level29 = na_if(Edu_level29, -9),
+    Degree = if_else(Edu_level29 >= 7, 1, 0)
   )
 
+attr(education_subset_29$Edu_level29, "label") <- "HIACA00"
+attr(education_subset_29$Degree, "label") <- "Derived"
 
 
-names(salary_subset_29) <- c("BCSID", "Grosspay29")
-attr(salary_subset_29$Grosspay29, "label") <- "cgropay"
-salary_subset_29$Grosspay29[salary_subset_29$Grosspay29 %in% c(9999998, 9999999)] <- NA
+# 2. Prepare Salary Subset
+system2("open", shQuote(here::here("Datasets/Sweep 6 Age 29/mrdoc/ukda_data_dictionaries/bcs2000_ukda_data_dictionary.rtf")), wait = FALSE)
+salary_subset_29 <- sweep6age29_se_bcs2000 %>%
+  select(bcsid, cgropay, cgroprd, econact) %>%
+  
+  mutate(
+    cgropay = haven::zap_labels(cgropay),
+    cgroprd = haven::zap_labels(cgroprd)
+  ) %>%
+  mutate(
+    cgropay = if_else(cgropay %in% c(9999998, 9999999), NA_real_, cgropay),
+    cgroprd = if_else(cgroprd %in% c(6, 8, 9),          NA_real_, cgroprd)
+  ) %>%
+  
+  # Convert pay to an annual figure
+  mutate(
+    gross_pay_annual = case_when(
+      cgroprd == 1 ~ cgropay * 52,   # weekly
+      cgroprd == 2 ~ cgropay * 26,   # fortnight
+      cgroprd == 3 ~ cgropay * 13,   # four weeks
+      cgroprd == 4 ~ cgropay * 12,   # calendar month
+      cgroprd == 5 ~ cgropay,        # already annual
+      TRUE         ~ NA_real_
+    )
+  ) %>%
+  select(
+    BCSID = bcsid, 
+    gross_pay_annual_29 = gross_pay_annual, 
+    employment_status = econact
+  )
+
+attr(salary_subset_29$gross_pay_annual_29, "label") <- "cgropay * cgroprd"
+attr(salary_subset_29$employment_status, "label") <- "econact"
 
 
-# 3. Prepare salary subset at age 46
-system2("open", shQuote(here::here("Datasets/Sweep 10 Age 46/mrdoc/ukda_data_dictionaries/bcs_age46_main_ukda_data_dictionary.rtf")), wait = FALSE)
-salary_subset_46 <- sweep10age46_bcs_age46_main[, c("BCSID", "B10GROA")]
-names(salary_subset_46)[names(salary_subset_46) == "B10GROA"] <- "Grosspay46"
-attr(salary_subset_46$Grosspay46, "label") <- "B10GROA"
-salary_subset_46$Grosspay46[salary_subset_46$Grosspay46 %in% c(-9, -8, -1)] <- NA
+
 
 # 4. Prepare cognitive subset at age 10
 system2("open", shQuote(here::here("Datasets/Sweep 3 Age 10/mrdoc/ukda_data_dictionaries/bcs3derived_ukda_data_dictionary.rtf")), wait = FALSE)
-cognitive_subset_10 <- sweep3age10_bcs3derived[, c("bcsid", "bd3read", "bd3maths")]
-names(cognitive_subset_10)[names(cognitive_subset_10) == "bcsid"]   <- "BCSID"
-names(cognitive_subset_10)[names(cognitive_subset_10) == "bd3read"]  <- "ReadingScore10"
-names(cognitive_subset_10)[names(cognitive_subset_10) == "bd3maths"] <- "MathsScore10"
+cognitive_subset_10 <- sweep3age10_bcs3derived %>%
+  select(
+    BCSID         = bcsid,
+    ReadingScore10 = bd3read,
+    MathsScore10   = bd3maths
+  ) %>%
+  mutate(
+    ReadingScore10 = na_if(ReadingScore10, -1),
+    MathsScore10   = na_if(MathsScore10,   -1)
+  )
 attr(cognitive_subset_10$ReadingScore10, "label") <- "bd3read"
 attr(cognitive_subset_10$MathsScore10,   "label") <- "bd3maths"
-cognitive_subset_10$ReadingScore10[cognitive_subset_10$ReadingScore10 == -1] <- NA
-cognitive_subset_10$MathsScore10[cognitive_subset_10$MathsScore10 == -1] <- NA
+
+
+system2("open", shQuote(here::here("Datasets/Sweep 3 Age 10/mrdoc/ukda_data_dictionaries/bcs3derived_ukda_data_dictionary.rtf")), wait = FALSE)
+
+background_subset_10 <- sweep3age10_bcs3derived %>%
+  select(
+    BCSID = bcsid,
+    Region10 = bd3regn,
+    Social_class10 = bd3psoc,
+    Family_income10 = bd3inc
+  ) %>%
+  mutate(
+    Region10 = na_if(Region10, -2),
+    Region10 = na_if(Region10, -1),
+    Social_class10 = na_if(Social_class10, -2),
+    Social_class10 = na_if(Social_class10, -1),
+    Family_income10 = na_if(Family_income10, -1),
+    Family_income10 = na_if(Family_income10, 8)
+  )
+
+attr(background_subset_10$Region10, "label") <- "bd3regn"
+attr(background_subset_10$Social_class10, "label") <- "bd3psoc"
+attr(background_subset_10$Family_income10, "label") <- "bd3inc"
+
+
+
+degree_subset_29 <- sweep6age29_se_bcs2000 %>%
+  select(
+    BCSID = bcsid,
+    Subject_29 = edqsub66,
+    Degree_grade29 = eddeg,
+    Degree_location29 = edqloc66
+  ) %>%
+  mutate(
+    Degree_grade29 = na_if(Degree_grade29, 8),
+    Degree_grade29 = na_if(Degree_grade29, 9)
+  )
+attr(degree_subset_29$Degree_grade29, "label") <- "eddeg"
+attr(degree_subset_29$Subject_29, "label") <- "edqsub66"
+attr(degree_subset_29$Degree_location29, "label") <- "edqloc66"
+
+
 
 
 # 5. Merge all prepared subsets
-master_data <- list(
-  education_subset_29,
-  salary_subset_29,
-  salary_subset_46,
-  cognitive_subset_10
-) %>%
-  reduce(full_join, by = "BCSID")
+master_data <- education_subset_29 %>%
+  full_join(salary_subset_29, by = "BCSID") %>%
+  full_join(degree_subset_29, by = "BCSID") %>%
+  full_join(background_subset_10, by = "BCSID") %>%
+  full_join(cognitive_subset_10, by = "BCSID")
 
 # Check for duplicated BCSIDs
 any(duplicated(master_data$BCSID))
@@ -99,10 +153,11 @@ any(duplicated(master_data$BCSID))
 
 master_data_complete <- master_data[complete.cases(master_data), ]
 
-# Correlation between MathsScore10 and ReadingScore10
-correlation_math_reading <- cor(master_data_complete$Grosspay29, master_data_complete$Grosspay46)
+names(master_data_complete)
 
-# Print the result
-print(correlation_math_reading)
+
+
+head(master_data)
+
 
 
