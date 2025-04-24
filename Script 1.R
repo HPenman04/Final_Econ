@@ -48,38 +48,79 @@ attr(education_subset_29$Degree, "label") <- "Derived"
 # 2. Prepare Salary Subset
 system2("open", shQuote(here::here("Datasets/Sweep 6 Age 29/mrdoc/ukda_data_dictionaries/bcs2000_ukda_data_dictionary.rtf")), wait = FALSE)
 salary_subset_29 <- sweep6age29_se_bcs2000 %>%
-  select(bcsid, cgropay, cgroprd, econact, chours1, chours5) %>%
+  select(bcsid, cgropay, cgroprd, econact, chours1, chours2) %>%
   
   mutate(
     cgropay = haven::zap_labels(cgropay),
-    cgroprd = haven::zap_labels(cgroprd)
-  ) %>%
-  mutate(
-    cgropay = if_else(cgropay %in% c(9999998, 9999999), NA_real_, cgropay),
-    cgroprd = if_else(cgroprd %in% c(6, 8, 9),          NA_real_, cgroprd)
+    cgroprd  = haven::zap_labels(cgroprd)
   ) %>%
   
-  # Convert pay to an annual figure
+  mutate(
+    cgropay = if_else(cgropay %in% c(9999998, 9999999), NA_real_, cgropay),
+    cgroprd = if_else(cgroprd  %in% c(6, 8, 9),          NA_real_, cgroprd),
+    
+    # set 'Don't know' / 'Not answered' to NA
+    chours1  = if_else(chours1  %in% c(98,  99),   NA_real_, chours1),
+    chours2  = if_else(chours2  %in% c(998, 999),  NA_real_, chours2)
+  ) %>%
+  
+  # combined usual hours
+  mutate(
+    Weekly_hours = coalesce(chours1, chours2)
+  ) %>%
+  
+  # annualise pay
   mutate(
     gross_pay_annual = case_when(
       cgroprd == 1 ~ cgropay * 52,   # weekly
-      cgroprd == 2 ~ cgropay * 26,   # fortnight
-      cgroprd == 3 ~ cgropay * 13,   # four weeks
-      cgroprd == 4 ~ cgropay * 12,   # calendar month
+      cgroprd == 2 ~ cgropay * 26,   # fortnightly
+      cgroprd == 3 ~ cgropay * 13,   # four‑weekly
+      cgroprd == 4 ~ cgropay * 12,   # monthly
       cgroprd == 5 ~ cgropay,        # already annual
       TRUE         ~ NA_real_
     )
   ) %>%
+  
+  # calculate hourly rate
+  mutate(
+    hourly_pay = if_else(
+      !is.na(gross_pay_annual) & Weekly_hours > 0,
+      gross_pay_annual / (Weekly_hours * 52),
+      NA_real_
+    )
+  ) %>%
+  
   select(
-    BCSID = bcsid, 
-    gross_pay_annual_29 = gross_pay_annual, 
-    employment_status = econact
+    BCSID                  = bcsid,
+    gross_pay_annual_29    = gross_pay_annual,
+    hourly_pay29           = hourly_pay,
+    weekly_hours_29 = Weekly_hours,
+    employment_status      = econact
   )
 
-attr(salary_subset_29$gross_pay_annual_29, "label") <- "cgropay * cgroprd"
-attr(salary_subset_29$employment_status, "label") <- "econact"
+attr(salary_subset_29$gross_pay_annual_29, "label")   <- "cgropay * cgroprd"
+attr(salary_subset_29$hourly_pay29,      "label")   <- "cgropay * cgroprd / chours"
+attr(salary_subset_29$employment_status, "label")   <- "econact"
 
+library(ggplot2)
+library(scales)
 
+ggplot(salary_subset_29, aes(x = gross_pay_annual, y = hourly_pay)) +
+  geom_point(alpha = 0.5) +
+  scale_x_log10(
+    breaks = c(100, 1000, 10000, 100000, 1000000),
+    labels = label_number(prefix = "£", big.mark = ",")
+  ) +
+  scale_y_log10(
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = label_number(prefix = "£", big.mark = ",")
+  ) +
+  labs(
+    title = "Log-Log Plot of Annual vs Hourly Pay",
+    x = "Annual Gross Pay",
+    y = "Hourly Pay"
+  ) +
+  theme_minimal()
 
 
 # 4. Prepare cognitive subset at age 10
@@ -212,14 +253,17 @@ head(master_data_complete)
 # Restrict master_data based on your sample selection criteria
 restricted_data <- master_data %>%
   filter(
-    Edu_level29 >= 3,                     # At least one A-level
+    Edu_level29 >= 4,                     # At least one A-level
     employment_status %in% c(1, 3),        # Employment status: employee full-time (1) or part-time (3)
-    !is.na(gross_pay_annual_29)            # Non-missing gross annual pay
+    !is.na(gross_pay_annual_29), 
+    !is.na(hourly_pay29), 
   ) %>%
   mutate(
-    log_gross_pay = log(gross_pay_annual_29)
+    log_gross_annual_pay = log(gross_pay_annual_29),
+    log_hourly_pay = log(hourly_pay29)
+    
   )
-  
+
 restricted_data <- restricted_data %>%
   mutate(
     Edu_level29 = as_factor(Edu_level29),
@@ -234,6 +278,7 @@ restricted_data <- restricted_data %>%
     employment_status = as_factor(employment_status)
   )
 
+restricted_data$Edu_level29 <- relevel(restricted_data$Edu_level29, ref = "1 A level or more than 1 AS level at gr")
 
 
 names(restricted_data)
@@ -241,11 +286,11 @@ names(restricted_data)
 
 
 
-model1 <- lm(log_gross_pay ~ Degree, data = restricted_data)
+model1 <- lm(log_gross_annual_pay ~ Degree, data = restricted_data)
 summary(model1)
 
 
-model2 <- lm(log_gross_pay ~ Degree + ReadingScore10 + MathsScore10 + Social_class10 + Family_income10 + Region10 + FinalSchoolType + Father_Education10 + Mother_Education10, data = restricted_data)
+model2 <- lm(log_gross_annual_pay ~ Degree + ReadingScore10 + MathsScore10 + Social_class10 + Family_income10 + Region10 + FinalSchoolType + Father_Education10 + Mother_Education10, data = restricted_data)
 
 summary(model2)
 
@@ -290,11 +335,11 @@ handle_missing_with_dummies_clean <- function(data, vars) {
 
 
 # Apply it to your restricted_data
-restricted_data <- handle_missing_with_dummies(restricted_data, controls_to_handle)
+restricted_data <- handle_missing_with_dummies_clean(restricted_data, controls_to_handle)
 
 
 model3 <- lm(
-  log_gross_pay ~ Degree 
+  log_gross_annual_pay ~ Edu_level29 
   + ReadingScore10 + Miss_ReadingScore10
   + MathsScore10 + Miss_MathsScore10
   + Social_class10
@@ -308,3 +353,28 @@ model3 <- lm(
 
 
 summary(model3)
+
+
+
+
+model4 <- lm(
+  log_hourly_pay ~ Edu_level29 
+  + ReadingScore10 + Miss_ReadingScore10
+  + MathsScore10 + Miss_MathsScore10
+  + Social_class10
+  + Family_income10
+  + Region10
+  + FinalSchoolType
+  + Father_Education10
+  + Mother_Education10,
+  data = restricted_data
+)
+
+summary(model4)
+
+
+Spec1_1 <- lm(log_hourly_pay ~ Edu_level29, data = restricted_data)
+Spec1_2 <- lm(log_hourly_pay ~ Degree, data = restricted_data)
+
+summary(Spec1_1)
+summary(Spec1_2)
